@@ -5,7 +5,7 @@ mass spectrometrists using Bruker MALDI-TOFs to visualize their raw TSF format d
 ## Installation
 No installation is required. Simply download TSFImagingDataViewer 
 [here](https://github.com/gtluu/TSFImagingDataViewer/releases/download/v1.0.0/TSFImagingDataViewer_1.0.0.zip) and 
-run TSFImagingDataViewer.exe.
+run `TSFImagingDataViewer.exe`.
 
 ## Usage
 All options are disabled until a dataset is loaded. Click on the `Load Bruker *.d Dataset` button and select a *.d 
