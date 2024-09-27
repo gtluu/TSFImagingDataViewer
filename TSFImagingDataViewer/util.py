@@ -36,14 +36,62 @@ def schema_detection(bruker_dot_d_file):
 
 
 def get_ppm_tolerance(mz, ppm):
+    """
+    Get the tolerance in Daltons for a given m/z value at N ppm.
+
+    :param mz: m/z value
+    :type mz: float
+    :param ppm: ppm tolerance
+    :type ppm: int | float
+    :return: Tolerance in Daltons
+    :rtype: float
+    """
     return ppm * (mz / (10**6))
 
 
 # Copied from pyMALDIproc.
 def trim_spectrum(mz_array, intensity_array, lower_mass_range, upper_mass_range):
+    """
+       Trim the mass spectrum to only include features between the user specified lower and upper mass ranges
+       (inclusive).
+
+       :param mz_array: Numpy array containing m/z values.
+       :type mz_array: numpy.array
+       :param intensity_array: Numpy array containing intensity values.
+       :type intensity_array: numpy.array
+       :param lower_mass_range: Mass in daltons to use for the lower mass range.
+       :type lower_mass_range: int
+       :param upper_mass_range: Mass in Daltons to use for the upper mass range.
+       :type upper_mass_range: int
+       """
     indices = np.where((mz_array >= lower_mass_range) & (mz_array <= upper_mass_range))[0]
     mz_array = copy.deepcopy(mz_array[indices])
     intensity_array = copy.deepcopy(intensity_array[indices])
+    return mz_array, intensity_array
+
+
+def create_average_spectrum(data, frame_ids, full=False):
+    """
+    Create an average spectrum from a TsfData dataset for a list of frames.
+
+    :param data: TSF dataset.
+    :type data: pyTDFSDK.classes.TsfData
+    :param frame_ids: List of frame IDs to average.
+    :type frame_ids: list[int]
+    :param full: Whether the average being calculated is a full or average spectrum.
+    :type full: bool
+    :return: Numpy array containing average intensity values.
+    :rtype: numpy.array
+    """
+    intensity_array = np.array([])
+    for i in frame_ids:
+        spectrum = TsfSpectrum(data, frame=i, mode='profile')
+        if intensity_array.size == 0:
+            intensity_array = spectrum.intensity_array
+            mz_array = spectrum.mz_array  # assume m/z axis for profile data is the same
+        else:
+            intensity_array = np.sum([intensity_array, spectrum.intensity_array], axis=0)
+    intensity_array = intensity_array / len(frame_ids)
     return mz_array, intensity_array
 
 
@@ -82,18 +130,14 @@ def get_spectrum(spectrum):
     return fig
 
 
-def get_spectrum_from_arrays(mz_array, intensity_array):
+def get_spectrum_from_arrays(spectrum_df):
     """
     Plot the spectrum to a plotly.express.line plot wrapped by plotly_resampler.FigureResampler.
 
-    :param mz_array: Profile mode m/z array.
-    :type mz_array: numpy.array
-    :param intensity_array: Profile mode intensity array.
-    :type intensity_array: numpy.array
+    :param spectrum_df: Spectrum dataframe containing columns 'm/z' and 'Intensity'.
+    :type spectrum_df: pandas.DataFrame
     :return: Plotly figure containing mass spectrum.
     """
-    spectrum_df = pd.DataFrame({'m/z': copy.deepcopy(mz_array),
-                                'Intensity': copy.deepcopy(intensity_array)})
     fig = FigureResampler(px.line(data_frame=spectrum_df,
                                   x='m/z',
                                   y='Intensity',
@@ -124,6 +168,7 @@ def get_ion_image(data, mz, mz_tolerance, mz_tolerance_unit):
         tolerance = get_ppm_tolerance(mz, mz_tolerance)
     else:
         tolerance = 0
+
     lower_mass_range = mz - tolerance
     upper_mass_range = mz + tolerance
     mz_min = float(data.analysis['GlobalMetadata']['MzAcqRangeLower'])
@@ -132,18 +177,22 @@ def get_ion_image(data, mz, mz_tolerance, mz_tolerance_unit):
         lower_mass_range = mz_min
     if upper_mass_range > mz_max:
         upper_mass_range = mz_max
-    frame_ids = data.analysis['Frames']['Id'].values
-    list_of_scans = [TsfSpectrum(data, frame=i, mode='profile') for i in frame_ids]
-    list_of_scan_dicts = []
-    for i in list_of_scans:
-        mz_array, intensity_array = trim_spectrum(i.mz_array, i.intensity_array, lower_mass_range, upper_mass_range)
-        list_of_scan_dicts.append({'intensity': np.sum(intensity_array),
-                                   'x_coord': i.coord[0],
-                                   'y_coord': i.coord[1]})
     min_x = int(data.analysis['GlobalMetadata']['ImagingAreaMinXIndexPos'])
     max_x = int(data.analysis['GlobalMetadata']['ImagingAreaMaxXIndexPos'])
     min_y = int(data.analysis['GlobalMetadata']['ImagingAreaMinYIndexPos'])
     max_y = int(data.analysis['GlobalMetadata']['ImagingAreaMaxYIndexPos'])
+
+    frame_ids = data.analysis['Frames']['Id'].values
+    list_of_scan_dicts = []
+    for i in frame_ids:
+        spectrum = TsfSpectrum(data, frame=i, mode='profile')
+        mz_array, intensity_array = trim_spectrum(spectrum.mz_array,
+                                                  spectrum.intensity_array,
+                                                  lower_mass_range,
+                                                  upper_mass_range)
+        list_of_scan_dicts.append({'intensity': np.sum(intensity_array),
+                                   'x_coord': spectrum.coord[0],
+                                   'y_coord': spectrum.coord[1]})
     intensity_df = pd.DataFrame(list_of_scan_dicts)
     intensity_df['x_coord'] = intensity_df['x_coord'] - min_x
     intensity_df['y_coord'] = intensity_df['y_coord'] - min_y

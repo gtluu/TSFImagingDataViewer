@@ -10,6 +10,7 @@ from io import StringIO
 import atexit
 import shutil
 import webview
+import numpy.core.multiarray
 from TSFImagingDataViewer import VERSION
 from TSFImagingDataViewer.dashboard import app, FILE_SYSTEM_BACKEND
 

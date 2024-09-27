@@ -4,7 +4,10 @@
 # https://github.com/gtluu/flex_maldi_dda_automation
 
 
+import os
+import copy
 import numpy as np
+import pandas as pd
 from dash import State, callback_context, no_update
 import dash_bootstrap_components as dbc
 from dash_extensions.enrich import (Input, Output, DashProxy, MultiplexerTransform, Serverside,
@@ -17,7 +20,8 @@ from tkinter.filedialog import askdirectory
 from pyTDFSDK.classes import TsfData, TsfSpectrum
 from pyTDFSDK.init_tdf_sdk import init_tdf_sdk_api
 from TSFImagingDataViewer.layout import get_dashboard_layout
-from TSFImagingDataViewer.util import schema_detection, get_spectrum, get_spectrum_from_arrays, get_ion_image
+from TSFImagingDataViewer.util import (schema_detection, get_spectrum, get_spectrum_from_arrays, get_ion_image,
+                                       create_average_spectrum)
 
 FILE_SYSTEM_BACKEND = tempfile.TemporaryDirectory().name
 DATA = None
@@ -105,18 +109,20 @@ def upload_data(n_clicks):
               [State('x_coord_group', 'style'),
                State('y_coord_group', 'style'),
                State('frame_group', 'style')])
-def create_average_estimate(n_clicks, x_coord_group_style, y_coord_group_style, frame_group_style):
+def show_average_estimate(n_clicks, x_coord_group_style, y_coord_group_style, frame_group_style):
     changed_id = [i['prop_id'] for i in callback_context.triggered][0]
     if changed_id == 'average_estimate.n_clicks':
         global DATA
-        frame_ids = DATA.analysis['Frames']['Id'].values
-        frame_ids = frame_ids[::int(frame_ids.size / (frame_ids.size * 0.2))]
-        list_of_scans = [TsfSpectrum(DATA, frame=i, mode='profile') for i in frame_ids]
-        list_of_mz_arrays = [i.mz_array for i in list_of_scans]
-        mz_array = list_of_mz_arrays[0]  # assume m/z axis for profile data is the same
-        list_of_intensity_arrays = [i.intensity_array for i in list_of_scans]
-        intensity_array = np.mean(list_of_intensity_arrays, axis=0)
-        fig = get_spectrum_from_arrays(mz_array, intensity_array)
+        if os.path.isfile(os.path.join(DATA.source_file, 'average_estimate.pickle')):
+            spectrum_df = pd.read_pickle(os.path.join(DATA.source_file, 'average_estimate.pickle'))
+        else:
+            frame_ids = DATA.analysis['Frames']['Id'].values
+            frame_ids = frame_ids[::int(frame_ids.size / (frame_ids.size * 0.2))]
+            mz_array, intensity_array = create_average_spectrum(DATA, frame_ids)
+            spectrum_df = pd.DataFrame({'m/z': copy.deepcopy(mz_array),
+                                        'Intensity': copy.deepcopy(intensity_array)})
+            spectrum_df.to_pickle(os.path.join(DATA.source_file, 'average_estimate.pickle'))
+        fig = get_spectrum_from_arrays(spectrum_df)
         x_coord_group_style['display'] = 'none'
         y_coord_group_style['display'] = 'none'
         frame_group_style['display'] = 'none'
@@ -134,17 +140,20 @@ def create_average_estimate(n_clicks, x_coord_group_style, y_coord_group_style, 
               [State('x_coord_group', 'style'),
                State('y_coord_group', 'style'),
                State('frame_group', 'style')])
-def create_average_full(n_clicks, x_coord_group_style, y_coord_group_style, frame_group_style):
+def show_average_full(n_clicks, x_coord_group_style, y_coord_group_style, frame_group_style):
     changed_id = [i['prop_id'] for i in callback_context.triggered][0]
     if changed_id == 'average_full.n_clicks':
         global DATA
-        frame_ids = DATA.analysis['Frames']['Id'].values
-        list_of_scans = [TsfSpectrum(DATA, frame=i, mode='profile') for i in frame_ids]
-        list_of_mz_arrays = [i.mz_array for i in list_of_scans]
-        mz_array = list_of_mz_arrays[0]  # assume m/z axis for profile data is the same
-        list_of_intensity_arrays = [i.intensity_array for i in list_of_scans]
-        intensity_array = np.mean(list_of_intensity_arrays, axis=0)
-        fig = get_spectrum_from_arrays(mz_array, intensity_array)
+        if os.path.isfile(os.path.join(DATA.source_file, 'average_full.pickle')):
+            spectrum_df = pd.read_pickle(os.path.join(DATA.source_file, 'average_full.pickle'))
+        else:
+            frame_ids = DATA.analysis['Frames']['Id'].values
+
+            mz_array, intensity_array = create_average_spectrum(DATA, frame_ids)
+            spectrum_df = pd.DataFrame({'m/z': copy.deepcopy(mz_array),
+                                        'Intensity': copy.deepcopy(intensity_array)})
+            spectrum_df.to_pickle(os.path.join(DATA.source_file, 'average_full.pickle'))
+        fig = get_spectrum_from_arrays(spectrum_df)
         x_coord_group_style['display'] = 'none'
         y_coord_group_style['display'] = 'none'
         frame_group_style['display'] = 'none'
@@ -193,9 +202,7 @@ def update_spectrum_from_frame(frame):
         fig = get_spectrum(spectrum)
         maldiframeinfo_dict = DATA.analysis['MaldiFrameInfo'][DATA.analysis['MaldiFrameInfo']['Frame'] ==
                                                               frame].to_dict(orient='records')[0]
-        x_value = int(maldiframeinfo_dict['XIndexPos'])
-        y_value = int(maldiframeinfo_dict['YIndexPos'])
-        return fig, Serverside(fig), x_value, y_value
+        return fig, Serverside(fig), int(maldiframeinfo_dict['XIndexPos']), int(maldiframeinfo_dict['YIndexPos'])
     else:
         return no_update
 
@@ -255,18 +262,14 @@ def update_ion_image(n_clicks, mz, mz_tolerance, mz_tolerance_unit):
         return no_update
 
 
-@app.callback([Output('ion_image', 'figure'),
-               Output('mz', 'value')],
-              Input('spectrum', 'clickData'),
-              [State('mz_tolerance', 'value'),
-               State('mz_tolerance_unit', 'value')])
-def update_ion_image_from_spectrum(peak, mz_tolerance, mz_tolerance_unit):
+@app.callback(Output('mz', 'value'),
+              Input('spectrum', 'clickData'))
+def update_mz_from_spectrum(peak):
     changed_id = [i['prop_id'] for i in callback_context.triggered][0]
     if changed_id == 'spectrum.clickData':
         global DATA
         mz = round(peak['points'][0]['x'], 4)
-        ion_image = get_ion_image(DATA, mz, mz_tolerance, mz_tolerance_unit)
-        return ion_image, mz
+        return mz
 
 
 @app.callback([Output('spectrum', 'figure'),
