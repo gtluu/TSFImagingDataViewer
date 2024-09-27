@@ -3,7 +3,9 @@ TSFImagingDataViewer is a simple data visualization tool developed in Python 3.1
 mass spectrometrists using Bruker MALDI-TOFs to visualize their raw TSF format data.
 
 ## Installation
-No installation is required. Simply download TSFImagingDataViewer [here]() and run TSFImagingDataViewer.exe.
+No installation is required. Simply download TSFImagingDataViewer 
+[here](https://github.com/gtluu/TSFImagingDataViewer/releases/download/v1.0.0/TSFImagingDataViewer_1.0.0.zip) and 
+run TSFImagingDataViewer.exe.
 
 ## Usage
 All options are disabled until a dataset is loaded. Click on the `Load Bruker *.d Dataset` button and select a *.d 
